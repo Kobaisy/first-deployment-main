@@ -1,0 +1,226 @@
+---
+imports:
+   - path: https://storage.googleapis.com/rs-gdm-stl-master/constants_v1/constants_v1.py
+     name: constants_v1.py 
+   - path: https://cloud.google.com/compute/docs/reference/rest/v1/addresses 
+     name: address_v1.py
+   - path: https://storage.googleapis.com/rs-gdm-stl-master/gce_instance_v2/gce_instance_v2.py
+     name: gce_instance_v2.py
+   - path: https://cloud.google.com/compute/docs/reference/rest/v1/healthChecks
+     name: httphealthcheck_v1.py
+ 
+##########################################
+resources:
+   - type: constant_v1.py
+     name: constants
+     properties: 
+        region: &REGION us-central1
+        zone1: &ZONE1 us-central1-a
+        zone2: &ZONE2 us-central1-b
+        network: &NET projects/first-deployment-VPC/global/networks/binnys-NET01
+############# 192.168.1.0/24 #################            
+        prod_web: &PROD_WEB projects/first-deployment-VPC/regions/us-central1/subnetworks/binnys-Production-web-snet01-net01
+############# 192.168.2.0/24 #################
+        prod_data: &PROD_DATA projects/first-deployment-VPC/regions/us-central1/subnetworks/binnys-Production-Data-snet02-net01
+############# 192.168.3.0/24 #################
+        prod_shared: &PROD_SHARED projects/first-deployment-VPC/regions/us-central1/subnetworks/binnys-Production-Shared-snet03-net01
+############# 192.168.4.0/24 #################
+        stage_net: &STAGING_NET projects/first-deployment-VPC/regions/us-central1/subnetworks/binnys-Staging-snet04-net01
+############# 192.168.5.0/24 #################
+        dev_net: &DEV_NET projects/first-deployment-VPC/regions/us-central1/subnetworks/binny-Development-snet05-net01
+
+        sourceImage: &SOURCEIMAGE projects/centos-cloud/us-central1-a/images/centos-7
+############# REDIS DISKS #################
+        REDIS_boot_disk_1: &REDIS_BOOT1 projects/first-deployment-stateful/zones/us-central1-a/disks/biys-dsk01-usc-boot1-NAT
+        REDIS_boot_disk_2: &REDIS_BOOT2 projects/first-deployment-stateful/zones/us-central1-b/disks/biys-dsk01-usc-boot2-NAT
+############# NAT DISKS #################
+        NAT_boot_disk_1: &NAT_BOOT1 projects/first-deployment-stateful/zones/us-central1-a/disks/biys-dsk01-usc-boot1-NAT
+        NAT_boot_disk_2: &NAT_BOOT2 projects/first-deployment-stateful/zones/us-central1-b/disks/biys-dsk01-usc-boot2-NAT
+############# DEVELOPMENT DISKS #################
+        dev_boot_disk: &DEV_BOOT projects/first-deployment-stateful/zones/us-central1-a/disks/biys-dsk01-usc-boot-dev
+        dev_data_disk_1: &DEV_DATA1 projects/first-deployment-stateful/zones/us-central1-a/disks/biys-dsk02-usc-data1-dev
+        dev_data_disk_2: &DEV_DATA2 projects/first-deployment-stateful/zones/us-central1-b/disks/biys-dsk02-usc-data2-dev
+############# STAGING DISKS #################
+        stage_boot_disk: &STAGE_BOOT projects/first-deployment-stateful/zones/us-central1-a/disks/biys-dsk01-usc-boot-stage
+        stage_data_disk_1: &STAGE_DATA1 projects/first-deployment-stateful/zones/us-central1-a/disks/biys-dsk02-usc-data1-stage
+        stage_data_disk_2: &STAGE_DATA2 projects/first-deployment-stateful/zones/us-central1-b/disks/biys-dsk02-usc-data2-stage
+############# BASTION DISKS #################
+        bastion_disk: &BASTION_DISK projects/first-deployment-stateful/zones/us-central1-a/disks/biys-dsk01-usc-boot-bastion
+############# JENKINS DISKS #################
+        jenkins_boot_disk: &JENKINS_BOOT projects/first-deployment-stateful/zones/us-central1-a/disks/biys-dsk01-usc-boot-jenkins
+        jenkins_data_disk: &JENKINS_DATA projects/first-deployment-stateful/zones/us-central1-a/disks/biys-dsk01-usc-data-jenkins
+############# NFS DISKS #################
+        NFS_boot_disk: &NFS_BOOT projects/first-deployment-stateful/zones/us-central1-a/disks/biys-dsk01-usc-boot-NFS
+        NFS_data_disk: &NFS_DATA projects/first-deployment-stateful/zones/us-central1-a/disks/biys-dsk02-usc-data-NFS
+############# MAGENTO DISKS #################
+        magento_boot_disk: &MAGE_BOOT projects/first-deployment-stateful/zones/us-central1-a/disks/biys-dsk01-usc-boot-magento
+        magento_data_disk_1: &MAGE_DATA1 projects/first-deployment-stateful/zones/us-central1-a/disks/biys-dsk01-usc-data1-magento
+        magento_data_disk_2: &MAGE_DATA2 projects/first-deployment-stateful/zones/us-central1-b/disks/biys-dsk01-usc-data2-magento
+
+#### IGM ########################################################
+resources:
+    - type: compute.v1.instanceTemplate
+      name: magento
+        properties: 
+          machineType: n1-standard-4
+          image_url: "projects/centos-cloud/global/images/family/centos-7"
+          networkInterfaces:
+            - accessConfigs:
+              - name: external-nat 
+              - type: ONE_TO_ONE_NAT
+          disks:
+            - deviceName: 'boot'
+            - boot: true
+            - autoDelete: false
+            - sourceImage: "projects/centos-cloud/us-central1-a/images/centos-7"
+
+    - type: igm_v1
+      name: igm_magento
+      properties:
+          region: *REGION
+          targetSize: 1
+          instanceTemplate: $(ref.Magento.selfLink)
+
+#Autoscale group for MIG  
+    - type: autoscaler_v1.py
+      name: igm_magento
+      properties:
+        region: *REGION
+        autoscalingPolicy.minNumReplicas: 1
+        autoscalingPolicy.maxNumReplicas: 4
+        target: $(ref.magento-igm.selfLink)
+
+#Instances:
+    - type: gce_instance_v2.py
+      name: Varnish
+      properties:
+       zone: *ZONE1 
+       disks:
+        - deviceName: 'boot'
+          boot: true
+          autoDelete: false
+          initializeParams:
+            sourceImage: projects/centos-cloud/us-central1-a/images/centos-7
+            diskSizeGb: 60
+        machineType: n1-standard-2
+        networkInterfaces:
+          - network: *NET
+            subnetworks: *PROD_WEB
+
+    - type: gce_instance_v2.py
+      name: NAT01
+      properties:
+        zone: *ZONE1 
+        machineType: n1-standard-2
+        networkInterfaces:
+          - network: *NET 
+            subnetworks: *PROD_WEB
+        disks:
+          - source:
+              - *NAT_BOOT1
+               
+
+    - type: gce_instance_v2.py
+      name: NAT02
+      properties: 
+        zone: *ZONE2 
+        machineType: n1-standard-2
+        networkInterfaces:
+          - network: *NET 
+            subnetworks: *PROD_WEB
+        disks:
+          - source:
+              - *NAT_BOOT2
+               
+    - type: gce_instance_v2.py
+      name: Development
+      properties: 
+        machineType: n1-highmem-2 
+        zone: *ZONE1 
+        networkInterfaces:
+          - network: *NET 
+            subnetworks: *DEV_NET
+        disks:
+          - source:
+              - *DEV_BOOT
+              - *DEV_DATA1
+              - *DEV_DATA2
+
+
+    - type: gce_instance_v2.py
+      name: Staging
+      properties: 
+        zone: *ZONE1 
+        machineType: n1-highmem-2
+        networkInterfaces:
+          - network: *NET 
+            subnetworks: *STAGING_NET
+        disks:
+          - source:
+              - *STAGE_BOOT
+              - *STAGE_DATA1
+              - *STAGE_DATA2
+
+
+    - type: gce_instance_v2.py
+      name: Bastion 
+      properties: 
+        zone: *ZONE1 
+        machineType: n1-standard-1
+        networkInterfaces:
+          - network: *NET 
+            subnetworks: *PROD_SHARED
+        disks:
+          - source:
+              - *BASTION_DISK
+
+    - type: gce_instance_v2.py
+      name: Jenkins 
+      properties: 
+        machineType: n1-highmem-4 
+        zone: *ZONE1 
+        networkInterfaces:
+          - network: *NET 
+            subnetworks: *PROD_SHARED
+        disks:
+          - source:
+              - *JENKINS_BOOT
+              - *JENKINS_DATA
+
+
+    - type: gce_instance_v2.py
+      name: NFS
+      properties: 
+        machineType: n1-standard-2 
+        zone: *ZONE1 
+        networkInterfaces:
+          - network: *NET 
+            subnetworks: *PROD_DATA
+        disks:
+          - source:
+              - *NFS_BOOT
+              - *NFS_DATA
+
+    - type: gce_instance_v2.py
+      name: redis_1 
+      properties: 
+        machineType: n1-highcpu-4
+        zone: *ZONE1 
+        networkInterfaces:
+          - network: *NET 
+            subnetworks: *PROD_DATA
+        disks:
+          - source:
+              - *REDIS_BOOT1
+
+    - type: gce_instance_v2.py
+      name: redis_2
+      properties: 
+        machineType: n1-highcpu-4
+        zone: *ZONE2
+        networkInterfaces:
+          - network: *NET 
+            subnetworks: *PROD_DATA
+        disks:
+          - source:
+              - *REDIS_BOOT2
